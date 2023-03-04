@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from ..scheduler import Scheduler2
-from ..utils import get_gamma_sigma_hat
+from ..utils import get_gamma_sigma_hat, lerp
 
 
 class DPM2(Scheduler2):
@@ -21,7 +21,7 @@ class DPM2(Scheduler2):
 
         cs, ns = sigmas[:-1], sigmas[1:]
         gamma, sigma_hat = get_gamma_sigma_hat(cs, steps, s_churn, s_tmin, s_tmax)
-        sigma_mid = sigma_hat.log().lerp(ns.log(), 0.5).exp()
+        sigma_mid = lerp(sigma_hat, ns, 1 / 2)
         mask_noise = gamma > 0
         order_mask = ns != 0
         gn = torch.where(order_mask, sigma_mid, ns)

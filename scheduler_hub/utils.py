@@ -6,6 +6,10 @@ import torch
 from torch import Tensor
 
 
+def lerp(begin: Tensor, end: Tensor, position: float = 1 / 2) -> Tensor:
+    return begin.log().lerp(end.log(), position).exp()
+
+
 def get_sigmas_karras(steps: int, sigma_min: float, sigma_max: float, rho: float = 7) -> Tensor:
     t = torch.linspace(0, 1, steps)
     a = sigma_min ** (1 / rho)

@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 from ..scheduler import Scheduler2
-from ..utils import get_ancestral_step
+from ..utils import get_ancestral_step, lerp
 
 
 class DPM2Ancestral(Scheduler2):
@@ -19,7 +19,7 @@ class DPM2Ancestral(Scheduler2):
 
         cs, ns = sigmas[:-1], sigmas[1:]
         sigma_down, sigma_up = get_ancestral_step(cs, ns, eta)
-        sigma_mid = cs.log().lerp(sigma_down.log(), 0.5).exp()
+        sigma_mid = lerp(cs, sigma_down, 1 / 2)
         order_mask = sigma_down != 0
 
         self.timestep[:] = cs

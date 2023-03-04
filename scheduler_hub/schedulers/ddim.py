@@ -14,6 +14,7 @@ BETA_END = 0.012
 POWER = 2
 
 
+# TODO WIP
 class DDIM(Scheduler1):
     """Denoising Diffusion Implicit Models scheduler."""
 

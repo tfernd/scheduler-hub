@@ -3,7 +3,7 @@ from typing import Optional
 
 from torch import Tensor
 
-from .protocols import Model, Callback, ExtraArgs
+from .protocols import Model, Callback
 from .schedulers import Euler, EulerAncestral, Heun, DPM2, DPM2Ancestral, DPMpp2SAncestral, DPMpp2M
 
 

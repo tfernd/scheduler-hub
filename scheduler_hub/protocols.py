@@ -15,12 +15,12 @@ class Model(Protocol):
         ...
 
 
-class ExtraArgs(TypedDict):
+class CallbackArgs(TypedDict):
     i: int | float
     x: Tensor
     denoised: Tensor
 
 
 class Callback(Protocol):
-    def __call__(self, kwargs: ExtraArgs) -> Tensor:
+    def __call__(self, kwargs: CallbackArgs) -> Tensor:
         ...

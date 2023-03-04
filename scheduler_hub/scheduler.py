@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch import Tensor
 
-from .protocols import Model, Callback, ExtraArgs
+from .protocols import Model, Callback
 
 
 class BaseScheduler:
@@ -72,7 +72,7 @@ class BaseScheduler:
             if name.startswith("timestep"):
                 continue
 
-            plt.plot(value.cpu(), label=name, marker='.')
+            plt.plot(value.cpu(), label=name, marker=".")
 
         plt.title(f"{self.name}")
         plt.legend()
@@ -93,6 +93,9 @@ class BaseScheduler:
 
             for _ in range(iterations):
                 vec[1:-1] = vec[1:-1] * weight + (1 - weight) * (vec[2:] + vec[:-2]) / 2
+
+            if isinstance(self, Scheduler2):
+                self.zero_transform2_by_order_mask()
 
         return self
 
@@ -134,7 +137,7 @@ class Scheduler1(BaseScheduler):
         callback: Optional[Callback] = None,
         disable: bool = False,
     ) -> Tensor:
-        extra_args = extra_args if extra_args is not None else {}
+        extra_args = extra_args or {}
         _callback = callback or (lambda obj: ...)
 
         self.to(self.device, self.dtype)
@@ -253,7 +256,7 @@ class Scheduler2(BaseScheduler):
                 # re-denoise
                 denoised = model(x, self.timestep2[index] * s_in)
 
-                # callback # ! addition
+                # re-callback at half-steps # ! addition
                 _callback({"x": x, "i": index + 1 / 2, "denoised": denoised})
 
                 # re-transform # TODO add function for this
@@ -266,8 +269,9 @@ class Scheduler2(BaseScheduler):
         return x
 
     def zero_transform2_by_order_mask(self) -> None:
-        self.timestep2[~self.order_mask] = 0
+        # these values should never be used since order_mask prohibits it
 
+        self.timestep2[~self.order_mask] = 0
         self.transform2_x[~self.order_mask] = 0
         self.transform2_denoised[~self.order_mask] = 0
         self.transform2_noise[~self.order_mask] = 0

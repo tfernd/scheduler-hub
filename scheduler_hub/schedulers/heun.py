@@ -25,7 +25,7 @@ class Heun(Scheduler2):
         self.timestep[:] = sigma_hat
         self.timestep2[:] = ns
 
-        self.order_mask[:] = order_mask = ns != 0
+        self.order_mask[:] = ns != 0
 
         self.prep_x[:] = 1
         self.prep_noise[:] = s_noise * (sigma_hat**2 - cs**2).sqrt() * noise_mask
