@@ -1,6 +1,8 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Generator, Optional
 from typing_extensions import Self
+
+from copy import deepcopy
 
 from tqdm.auto import trange
 
@@ -17,6 +19,9 @@ class BaseScheduler:
 
     device: torch.device = torch.device("cpu")
     dtype: torch.dtype = torch.float32
+
+    def __init__(self, steps: int) -> None:
+        self.steps = steps
 
     # TODO rename
     @staticmethod
@@ -61,11 +66,13 @@ class BaseScheduler:
     def name(self) -> str:
         return self.__class__.__qualname__
 
-    def plot(self, show: bool = True) -> None:
+    def named_tensors(self) -> Generator[tuple[str, Tensor], None, None]:
         for name, value in self.__dict__.items():
-            if not isinstance(value, Tensor):
-                continue
+            if isinstance(value, Tensor):
+                yield name, value
 
+    def plot(self, show: bool = True) -> None:
+        for name, value in self.named_tensors():
             if value.eq(0).all():
                 continue
 
@@ -84,10 +91,7 @@ class BaseScheduler:
         if iterations == 0:
             return self
 
-        for name, vec in self.__dict__.items():
-            if not isinstance(vec, Tensor):
-                continue
-
+        for name, vec in self.named_tensors():
             if vec.dtype in (torch.long, torch.bool):
                 continue
 
@@ -98,6 +102,23 @@ class BaseScheduler:
                 self.zero_transform2_by_order_mask()
 
         return self
+
+    # TODO duplicated code
+    def clone(self) -> Self:
+        return deepcopy(self)
+
+    # TODO add * support
+    def mul(self, v: float) -> Self:
+        other = self.clone()
+
+        for name, value in other.named_tensors():
+            if value.dtype not in (torch.long, torch.bool):
+                value *= v
+
+        return other
+
+    def __repr__(self) -> str:
+        return f"{self.name}(steps={self.steps})"
 
 
 class Scheduler1(BaseScheduler):
@@ -115,7 +136,7 @@ class Scheduler1(BaseScheduler):
     transform_prev_denoised: Tensor
 
     def __init__(self, steps: int) -> None:
-        self.steps = steps
+        super().__init__(steps)
 
         self.timestep = torch.zeros(steps)
 
@@ -171,6 +192,19 @@ class Scheduler1(BaseScheduler):
 
         return x
 
+    # TODO duplicated code
+    # TODO add + support
+    def add(self, other: Scheduler1) -> Scheduler1:
+        assert self.steps == other.steps
+
+        result = Scheduler1(self.steps)
+        for name, value in self.named_tensors():
+            other_value: Tensor = getattr(other, name)
+
+            setattr(result, name, value + other_value)
+
+        return result
+
 
 class Scheduler2(BaseScheduler):
     # Second order scheduler
@@ -194,7 +228,7 @@ class Scheduler2(BaseScheduler):
     transform2_prev_denoised: Tensor
 
     def __init__(self, steps: int) -> None:
-        self.steps = steps
+        super().__init__(steps)
 
         self.timestep = torch.zeros(steps)
         self.timestep2 = torch.zeros(steps)
@@ -277,3 +311,16 @@ class Scheduler2(BaseScheduler):
         self.transform2_noise[~self.order_mask] = 0
         self.transform2_prev_x[~self.order_mask] = 0
         self.transform2_prev_denoised[~self.order_mask] = 0
+
+    # TODO duplicated code
+    # TODO add + support
+    def add(self, other: Scheduler2) -> Scheduler2:
+        assert self.steps == other.steps
+
+        result = Scheduler2(self.steps)
+        for name, value in self.named_tensors():
+            other_value: Tensor = getattr(other, name)
+
+            setattr(result, name, value + other_value)
+
+        return result
