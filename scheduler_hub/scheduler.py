@@ -139,23 +139,25 @@ class Scheduler1(BaseScheduler):
 
         self.to(self.device, self.dtype)
 
+        s_in = x.new_ones([x.shape[0]])
+
         # memory
         prev_x = prev_denoised = 0
         for index in trange(self.steps, disable=disable):
             # generate noise
             noise = torch.randn_like(x)  # TODO add generator from seeds?
 
-            # prepare latents
+            # prepare latents # TODO add function for this
             x = self.prep_x[index] * x
             x = x + self.prep_noise[index] * noise
 
             # denoise
-            denoised = model(x, self.timestep[index], **_extra_args)
+            denoised = model(x, self.timestep[index] * s_in, **_extra_args)
 
             # callback
             _callback({"x": x, "i": index, "denoised": denoised})
 
-            # transform
+            # transform # TODO add function for this
             x = self.transform_x[index] * x
             x = x + self.transform_denoised[index] * denoised
             x = x + self.transform_noise[index] * noise
@@ -223,16 +225,18 @@ class Scheduler2(BaseScheduler):
 
         self.to(self.device, self.dtype)
 
+        s_in = x.new_ones([x.shape[0]])
+
         for index in trange(self.steps, disable=disable):
             # generate noise
             noise = torch.randn_like(x)  # TODO add generator from seeds?
 
             # prepare latents
-            x = self.prep_x[index] * x
+            x = self.prep_x[index] * x  # TODO add function for this
             x = x + self.prep_noise[index] * noise
 
             # denoise
-            denoised = model(x, self.timestep[index], **_extra_args)
+            denoised = model(x, self.timestep[index] * s_in, **_extra_args)
 
             # memory
             prev_x, prev_denoised = x, denoised
@@ -240,19 +244,19 @@ class Scheduler2(BaseScheduler):
             # callback
             _callback({"x": x, "i": index, "denoised": denoised})
 
-            # transform
+            # transform # TODO add function for this
             x = self.transform_x[index] * x
             x = x + self.transform_denoised[index] * denoised
             x = x + self.transform_noise[index] * noise
 
             if self.order_mask[index]:
                 # re-denoise
-                denoised = model(x, self.timestep2[index])
+                denoised = model(x, self.timestep2[index] * s_in)
 
                 # callback # ! addition
                 _callback({"x": x, "i": index + 1 / 2, "denoised": denoised})
 
-                # re-transform
+                # re-transform # TODO add function for this
                 x = self.transform2_x[index] * x
                 x = x + self.transform2_denoised[index] * denoised
                 x = x + self.transform2_noise[index] * noise

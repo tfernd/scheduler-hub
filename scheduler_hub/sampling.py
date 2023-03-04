@@ -20,7 +20,7 @@ def sample_euler(
     s_noise: float = 1,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = Euler(sigmas, s_churn, s_tmin, s_tmax, s_noise).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
@@ -37,7 +37,7 @@ def sample_euler_ancestral(
     s_noise: float = 1,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = EulerAncestral(sigmas, eta, s_noise).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
@@ -56,7 +56,7 @@ def sample_heun(
     s_noise: float = 1,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = Heun(sigmas, s_churn, s_tmin, s_tmax, s_noise).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
@@ -75,7 +75,7 @@ def sample_dpm_2(
     s_noise: float = 1,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = DPM2(sigmas, s_churn, s_tmin, s_tmax, s_noise).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
@@ -92,7 +92,7 @@ def sample_dpm_2_ancestral(
     s_noise: float = 1,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = DPM2Ancestral(sigmas, eta, s_noise).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
@@ -109,7 +109,7 @@ def sample_dpmpp_2s_ancestral(
     s_noise: float = 1,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = DPMpp2SAncestral(sigmas, eta, s_noise).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
@@ -124,7 +124,7 @@ def sample_dpmpp_2m(
     disable: bool = False,
     *,
     smooth_steps: int = 0,
-    smooth_weight: float = 0.95
+    smooth_weight: float = 0.95,
 ) -> Tensor:
     scheduler = DPMpp2M(sigmas).smooth(smooth_steps, smooth_weight)
     return scheduler.sample(model, x, extra_args, callback, disable)
