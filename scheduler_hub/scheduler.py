@@ -72,7 +72,7 @@ class BaseScheduler:
             if name.startswith("timestep"):
                 continue
 
-            plt.plot(value.cpu(), label=name)
+            plt.plot(value.cpu(), label=name, marker='.')
 
         plt.title(f"{self.name}")
         plt.legend()
@@ -130,11 +130,11 @@ class Scheduler1(BaseScheduler):
         self,
         model: Model,
         x: Tensor,
-        extra_args: Optional[ExtraArgs] = None,
+        extra_args: Optional[dict] = None,
         callback: Optional[Callback] = None,
         disable: bool = False,
     ) -> Tensor:
-        _extra_args = extra_args if extra_args is not None else {}
+        extra_args = extra_args if extra_args is not None else {}
         _callback = callback or (lambda obj: ...)
 
         self.to(self.device, self.dtype)
@@ -152,7 +152,7 @@ class Scheduler1(BaseScheduler):
             x = x + self.prep_noise[index] * noise
 
             # denoise
-            denoised = model(x, self.timestep[index] * s_in, **_extra_args)
+            denoised = model(x, self.timestep[index] * s_in, **extra_args)
 
             # callback
             _callback({"x": x, "i": index, "denoised": denoised})
@@ -216,11 +216,11 @@ class Scheduler2(BaseScheduler):
         self,
         model: Model,
         x: Tensor,
-        extra_args: Optional[ExtraArgs] = None,
+        extra_args: Optional[dict] = None,
         callback: Optional[Callback] = None,
         disable: bool = False,
     ) -> Tensor:
-        _extra_args = extra_args if extra_args is not None else {}
+        extra_args = extra_args if extra_args is not None else {}
         _callback = callback or (lambda obj: ...)
 
         self.to(self.device, self.dtype)
@@ -236,7 +236,7 @@ class Scheduler2(BaseScheduler):
             x = x + self.prep_noise[index] * noise
 
             # denoise
-            denoised = model(x, self.timestep[index] * s_in, **_extra_args)
+            denoised = model(x, self.timestep[index] * s_in, **extra_args)
 
             # memory
             prev_x, prev_denoised = x, denoised
