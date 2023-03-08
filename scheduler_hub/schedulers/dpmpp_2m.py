@@ -8,7 +8,7 @@ from ..scheduler import Scheduler1
 
 class DPMpp2M(Scheduler1):
     def __init__(self, sigmas: Tensor) -> None:
-        sigmas, steps = self.sigma_config(sigmas)
+        sigmas, steps = self.clone_sigmas(sigmas)
         super().__init__(steps)
 
         i = torch.arange(steps)

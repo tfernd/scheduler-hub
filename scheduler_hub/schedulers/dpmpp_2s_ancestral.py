@@ -14,7 +14,7 @@ class DPMpp2SAncestral(Scheduler2):
         eta: float = 1,
         s_noise: float = 1,
     ) -> None:
-        sigmas, steps = self.sigma_config(sigmas)
+        sigmas, steps = self.clone_sigmas(sigmas)
         super().__init__(steps)
 
         cs, ns = sigmas[:-1], sigmas[1:]

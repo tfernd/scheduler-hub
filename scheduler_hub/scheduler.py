@@ -14,6 +14,23 @@ from torch import Tensor
 from .protocols import Model, Callback
 
 
+COLORS = {
+    "x": "#FF0000",
+    "prev_x": "#FFB6C1",
+    "denoised": "#0000FF",
+    "prev_denoised": "#ADD8E6",
+    "noise": "#000000",
+    "timestep": "#008000",
+    "timestep2": "#90EE90",
+}
+STYLES = {
+    "": {},
+    "prep": {"linestyle": "--"},
+    "transform": {"linestyle": "-", "linewidth": 2},
+    "transform2": {"linestyle": "-"},
+}
+
+
 class BaseScheduler:
     steps: int
 
@@ -25,7 +42,7 @@ class BaseScheduler:
 
     # TODO rename
     @staticmethod
-    def sigma_config(sigmas: Tensor) -> tuple[Tensor, int]:
+    def clone_sigmas(sigmas: Tensor) -> tuple[Tensor, int]:
         steps = len(sigmas) - 1
         sigmas = sigmas.detach().cpu().float().clone()
 
@@ -71,19 +88,39 @@ class BaseScheduler:
             if isinstance(value, Tensor):
                 yield name, value
 
-    def plot(self, show: bool = True) -> None:
-        for name, value in self.named_tensors():
-            if value.eq(0).all():
-                continue
+    def plot(
+        self,
+        show: bool = True,
+        *,
+        figsize: Optional[tuple[int, int]] = None,
+    ) -> None:
+        tensors_dict = {name: value for name, value in self.named_tensors() if not value.eq(0).all()}
 
-            if name.startswith("timestep"):
-                continue
+        fig, ax1 = plt.subplots(figsize=figsize)
+        ax2 = ax1.twinx()
 
-            plt.plot(value.cpu(), label=name, marker=".")
+        ax1.set_title(self.name)
+        ax1.set_xlabel("steps")
+        ax1.set_ylabel("weights")
+        ax2.set_ylabel("timesteps")
 
-        plt.title(f"{self.name}")
-        plt.legend()
-        plt.xlabel("steps")
+        for suffix, color in COLORS.items():
+            for prefix, style in STYLES.items():
+                second_axis = prefix == ""
+                name = f"{prefix}_{suffix}" if not second_axis else suffix
+                if name not in tensors_dict:
+                    continue
+
+                value = tensors_dict[name].detach().cpu().float()
+
+                if not second_axis:
+                    ax1.plot(value, label=name, color=color, **style)
+                else:
+                    ax2.plot(value, label=name, color=color, **style)
+
+        ax1.legend(loc="upper left")
+        ax2.legend(loc="upper right")
+
         if show:
             plt.show()
 
