@@ -30,21 +30,21 @@ class DDIM(Scheduler1):
         # sigmas, steps = self.sigma_config(sigmas)
         super().__init__(steps)
 
-        # trimmed timesteps for selection
-        self.timesteps = torch.linspace(TRAINED_STEPS - 1, 0, steps + 1).ceil().long()
+        # # trimmed timesteps for selection
+        # self.timesteps = torch.linspace(TRAINED_STEPS - 1, 0, steps + 1).ceil().long()
 
-        if approx:
-            # better approximation
-            t = torch.linspace(1, 0, steps + 1)
+        # if approx:
+        #     # better approximation
+        #     t = torch.linspace(1, 0, steps + 1)
 
-            ᾱ = torch.exp(0.242816 * t - 2.28274 * t**2 - 2.78543 * t**3)
-            ᾱ *= 1 - 1.11443 * t + 0.688069 * t**2
-        else:
-            # scheduler betas and alphas
-            β_begin = math.pow(BETA_BEGIN, 1 / POWER)
-            β_end = math.pow(BETA_END, 1 / POWER)
-            β = torch.linspace(β_begin, β_end, TRAINED_STEPS).pow(POWER)
-            print(β)
+        #     ᾱ = torch.exp(0.242816 * t - 2.28274 * t**2 - 2.78543 * t**3)
+        #     ᾱ *= 1 - 1.11443 * t + 0.688069 * t**2
+        # else:
+        #     # scheduler betas and alphas
+        #     β_begin = math.pow(BETA_BEGIN, 1 / POWER)
+        #     β_end = math.pow(BETA_END, 1 / POWER)
+        #     β = torch.linspace(β_begin, β_end, TRAINED_STEPS).pow(POWER)
+        #     print(β)
 
     #         # cummulative ᾱ trimmed
     #         α = 1 - β

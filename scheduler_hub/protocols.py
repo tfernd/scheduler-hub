@@ -8,8 +8,8 @@ from torch import Tensor
 class Model(Protocol):
     def __call__(
         self,
-        latents: Tensor,
-        timestep: float | Tensor,
+        x: Tensor,
+        timestep: Tensor,
         **extra_kwargs,
     ) -> Tensor:
         ...
