@@ -58,7 +58,7 @@ denoised = scheduler.sample(model, latents)
 
 All schedulers mentioned before are visualized here. The prefix `prep` refers to the weight that is multiplied prior to evaluating the model, while the prefixes `transform` and `transform2` refer to the weights after evaluating the model. The number 2 is used for second-order methods that evaluate the model twice in a single step. The prefix `prev` is used for models that have memory of previous steps. The boolean `order_mask` determines whether the second-order method will evaluate the second iteration or not. The suffixes `x`, `noise`, and `denoised` refer to the weights for the latents, noise, and the model output.
 
-Different schedulers can be visualized using the `plot` method of each scheduler object. (Note, the `timesteps` are now shown for simplicity)
+Different schedulers can be visualized using the `plot` method of each scheduler object. 
 
 ![Different schedulers](./assets/schedulers.png)
 
