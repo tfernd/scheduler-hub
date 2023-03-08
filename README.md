@@ -60,7 +60,7 @@ All schedulers mentioned before are visualized here. The prefix `prep` refers to
 
 Different schedulers can be visualized using the `plot` method of each scheduler object. (Note, the `timesteps` are now shown for simplicity)
 
-![Different schedulers](./assets/visualization.png)
+![Different schedulers](./assets/schedulers.png)
 
 
 # Project Status
