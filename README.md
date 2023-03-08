@@ -54,6 +54,8 @@ latents = torch.randn(1, 4, 32, 32) # create a batch of latents
 denoised = scheduler.sample(model, latents)
 ```
 
+In addition to using the `sample` method to apply a scheduler, you can also use the same notation as in k-diffusion and call a scheduler using the `sample_scheduler` method. For example, you can call the Euler scheduler using `sample_euler`. This method uses the same layout as k-diffusion but leverages the Scheduler Hub API for the call. This can provide a familiar syntax for users who are already familiar with the k-diffusion framework and make it easier to integrate Scheduler Hub into their workflows.
+
 # Visualizing different schedulers
 
 All schedulers mentioned before are visualized here. The prefix `prep` refers to the weight that is multiplied prior to evaluating the model, while the prefixes `transform` and `transform2` refer to the weights after evaluating the model. The number 2 is used for second-order methods that evaluate the model twice in a single step. The prefix `prev` is used for models that have memory of previous steps. The boolean `order_mask` determines whether the second-order method will evaluate the second iteration or not. The suffixes `x`, `noise`, and `denoised` refer to the weights for the latents, noise, and the model output.
