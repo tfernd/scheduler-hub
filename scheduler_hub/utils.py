@@ -17,7 +17,6 @@ def flush():
 def orthonormal_factory(
     max_size: int,
     /,
-    *,
     rand: bool = True,
 ):
     if rand:
