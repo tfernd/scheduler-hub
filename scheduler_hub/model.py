@@ -88,10 +88,11 @@ def encode_image(
     img: Image.Image,
     /,
 ) -> Tensor:
+    img = img.convert("RGB")
     data = np.asarray(img)
     data = torch.from_numpy(data)  # ? clone first?
     data = data.to(dtype=vae.dtype, device=vae.device)
     data = data.div(255 / 2).sub(1)
     data = rearrange(data, "h w c -> 1 c h w")
 
-    return vae.encode(data).latent_dist.sample()  # type: ignore
+    return vae.encode(data).latent_dist.sample() * vae.config.scaling_factor  # type: ignore

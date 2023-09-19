@@ -1,4 +1,5 @@
 from __future__ import annotations
+from abc import abstractmethod
 from typing import Optional
 from typing_extensions import Self
 
@@ -11,12 +12,10 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from k_diffusion.sampling import get_sigmas_karras
-
 import matplotlib.pyplot as plt
 
-from .types import Model, Schedulers, Sampler
-from .utils import find_scale_and_residual, sigmas_to_timesteps
+from .types import Model, Schedulers
+from .utils import find_scale_and_residual
 from .hijack import HijackRandom
 
 
@@ -66,12 +65,26 @@ class BaseModule(nn.Module):
 
 class BaseScheduler(BaseModule):
     timesteps: Tensor
+
     scale: Tensor
     noise: Tensor
     scale_pred: Tensor
+
+    noisy_scale: Tensor
+    noisy_noise_scale: Tensor
+
     guidance_scale: Tensor
 
     seed: int = -1
+
+    @abstractmethod
+    def __init__(
+        self,
+        steps: int,
+        order: int = 1,
+        noise_order: int = 1,
+    ) -> None:
+        super().__init__()
 
     def extra_repr(self) -> str:
         return f"steps={self.steps}, order={self.order}, noise_order={self.noise_order}, seed={self.seed}"  # ! SEED
@@ -99,13 +112,28 @@ class BaseScheduler(BaseModule):
 
         return self
 
-    def make_generator(self, /, seed: int = 1) -> tuple[int, torch.Generator]:
-        self.seed = seed = random.randint(0, 2**32 - 1) if seed < 0 else seed
+    def set_seed(self, seed: int = -1) -> Self:
+        self.seed = random.randint(0, 2**32 - 1) if seed < 0 else seed
 
-        generator = torch.Generator(device=self.device)
-        generator.manual_seed(self.seed)
+        self.generator = torch.Generator(device=self.device)
+        self.generator.manual_seed(self.seed)
 
-        return self.seed, generator
+        return self
+
+    def randn(self, x: Tensor | tuple[int, ...], /) -> Tensor:
+        shape = x.shape if isinstance(x, Tensor) else x
+
+        return torch.randn(*shape, device=self.device, dtype=self.dtype, generator=self.generator)
+
+    def clone(self) -> Self:
+        new = self.__class__(self.steps, self.order, self.noise_order)
+        new.to(device=self.device, dtype=self.dtype)
+        new.seed = self.seed
+
+        for name, value in self.named_tensors():
+            getattr(new, name).data = value.data.clone()
+
+        return new
 
 
 class ConvertScheduler(BaseScheduler, BaseModule):
@@ -177,6 +205,21 @@ class ConvertScheduler(BaseScheduler, BaseModule):
                 del noise_history[i]
             if len(gammas) > 0:
                 self.noise.data[step, : len(gammas)] = torch.tensor(gammas).sort(descending=True).values
+
+        # TODO re-implement.
+        # scheduler.set_timesteps(steps)  # type: ignore
+        # with HijackRandom(latents_history, noise_pred_history, noise_history, max_size) as hijacked:
+        #     for step, timestep in enumerate(scheduler.timesteps):
+        #         latents = hijacked.sample_noise()
+        #         noise = hijacked.sample_noise()
+
+        #         noisy_latents = scheduler.add_noise(latents, noise, timestep)  # type: ignore
+
+        #         alpha, out = find_scale_and_residual(noisy_latents, latents)
+        #         self.noisy_scale.data[step] = alpha
+
+        #         beta, out = find_scale_and_residual(out, noise)
+        #         self.noisy_noise_scale.data[step] = beta
 
         self.trim_order()
 
@@ -283,17 +326,25 @@ class PlotScheduler(BaseScheduler):
 
         norm = lambda x: x.detach().float().cpu()
 
-        axes[0].plot(norm(self.scale), c="k", label="Latents scale")
+        idx = torch.arange(-1, self.steps)
+
+        axes[0].plot(idx, norm(self.scale), c="k", label="Latents scale")
         axes[0].plot(norm(self.scale_pred), label="Noise pred. scale")
         axes[0].plot(norm(self.noise), c="g", label="Noise")
 
-        axes[1].plot(norm(self.timesteps), label="Timesteps")
+        axes[1].plot(norm(self.timesteps), label="Timesteps", c="k")
+        axes1t = axes[1].twinx()
+        axes1t.plot(norm(self.guidance_scale), label="Guidance scale", c="r")
 
-        axes[2].plot(norm(self.guidance_scale), label="Guidance scale")
+        axes[2].plot(norm(self.noisy_scale), label="Noisify latents scale")
+        axes[2].plot(norm(self.noisy_noise_scale), label="Nposify noise scale")
 
         for ax in axes:
             ax.set_xlabel("Steps (1)")
             ax.legend()
+
+        axes[1].legend(loc="lower left")
+        axes1t.legend(loc="upper right")
 
         plt.tight_layout()
         plt.show()
@@ -306,7 +357,7 @@ class Scheduler(ConvertScheduler, GuidanceScheduler, PlotScheduler, BaseModule):
         order: int = 1,
         noise_order: int = 1,
     ) -> None:
-        super().__init__()
+        super().__init__(steps, order, noise_order)
 
         order = min(order, steps)
 
@@ -314,10 +365,27 @@ class Scheduler(ConvertScheduler, GuidanceScheduler, PlotScheduler, BaseModule):
         self.scale = nn.Parameter(torch.zeros(steps + 1))
         self.noise = nn.Parameter(torch.zeros(steps + 1, noise_order))
         self.scale_pred = nn.Parameter(torch.zeros(steps, order))
+
+        self.noisy_scale = nn.Parameter(torch.zeros(steps))
+        self.noisy_noise_scale = nn.Parameter(torch.zeros(steps))
+
         self.guidance_scale = nn.Parameter(torch.ones(steps))
+
         self.timesteps = nn.Parameter(torch.zeros(steps))
 
         self.eval()
+
+    def add_noise(
+        self,
+        latents: Tensor,
+        /,
+        step: int,
+        *,
+        seed: int = -1,
+    ) -> Tensor:
+        self.set_seed(seed)
+
+        return self.noisy_scale[step] * latents + self.noisy_noise_scale[step] * self.randn(latents)
 
     def __call__(
         self,
@@ -330,16 +398,12 @@ class Scheduler(ConvertScheduler, GuidanceScheduler, PlotScheduler, BaseModule):
         disable: bool = False,
         # ! extra args for model?
     ) -> Tensor:
+        self.set_seed(seed)
+
         if isinstance(x, Tensor):
             self.to(device=x.device, dtype=x.dtype)
-            shape = x.shape
         else:
-            shape = x
-
-        self.seed, generator = self.make_generator(seed)
-        eps = lambda: torch.randn(*shape, device=self.device, dtype=self.dtype, generator=generator)
-        if not isinstance(x, Tensor):
-            x = eps()
+            x = self.randn(x)
 
         prev_np: list[Tensor] = []
         for step in trange(self.steps + 1, leave=leave, disable=disable):
@@ -350,11 +414,30 @@ class Scheduler(ConvertScheduler, GuidanceScheduler, PlotScheduler, BaseModule):
 
             x = x * self.scale[step]
             for order in range(self.noise_order):
-                x = x + eps() * self.noise[step, order]
+                x = x + self.randn(x) * self.noise[step, order]
             for order, noise_pred in enumerate(reversed(prev_np)):
                 x = x + noise_pred * self.scale_pred[step - 1, order]
 
         return x
+
+    def reverse(self) -> Self:
+        self.timesteps.data = self.timesteps.flip(0)
+
+        self.noisy_scale.data = self.noisy_scale.flip(0)
+        self.noisy_noise_scale.data = self.noisy_noise_scale.flip(0)
+
+        alpha = self.scale.data.clone()
+        beta = self.scale_pred.data.clone()
+        gamma = self.noise.data.clone()
+
+        self.scale.data = 1 / alpha.roll(-1).flip(0)
+        self.scale_pred.data = -(beta / alpha[1:, None]).flip(0).flip(1)
+        if self.noise_order > 0:
+            self.noise.data = -(gamma / alpha[1:, None]).flip(0)
+
+        self.trim_order()
+
+        return self
 
     def save(self, path: str | Path, /) -> Self:
         path = Path(path)
