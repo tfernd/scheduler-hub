@@ -1,0 +1,14 @@
+tqdm
+matplotlib
+Pillow
+scipy
+numpy
+torch>=2
+einops
+diffusers
+omegaconf
+torchsde
+transformers
+lightning>=2
+ipykernel
+ipywidgets
