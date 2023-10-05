@@ -10,7 +10,7 @@ from einops import rearrange
 
 from transformers import CLIPTextModel, CLIPTokenizer
 from diffusers import AutoencoderKL, UNet2DConditionModel, StableDiffusionPipeline
-
+from diffusers.schedulers import KarrasDiffusionSchedulers
 
 def load_model(
     pretrained_path: str,
@@ -19,7 +19,7 @@ def load_model(
     dtype: torch.dtype,
     device: torch.device,
     clip_skip: int = 1,
-) -> Tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel, AutoencoderKL]:
+) -> Tuple[CLIPTokenizer, CLIPTextModel, UNet2DConditionModel, AutoencoderKL, KarrasDiffusionSchedulers]:
     pipe = StableDiffusionPipeline.from_single_file(pretrained_path, local_files_only=True, use_safetensors=True)
 
     send = lambda model: model.requires_grad_(False).eval().to(dtype=dtype, device=device)
@@ -28,14 +28,16 @@ def load_model(
     text_encoder = send(pipe.text_encoder)
     vae = send(pipe.vae)
     unet = send(pipe.unet)
+    scheduker: KarrasDiffusionSchedulers = pipe.scheduler
 
     del pipe
 
     text_encoder.config.num_hidden_layers -= clip_skip - 1
 
-    return tokenizer, text_encoder, unet, vae
+    return tokenizer, text_encoder, unet, vae, scheduker
 
 
+# TODO remove cache, remove for loop
 def make_text_encoder(
     tokenizer: CLIPTokenizer,
     text_encoder: CLIPTextModel,

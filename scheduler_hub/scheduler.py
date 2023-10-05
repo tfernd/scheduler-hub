@@ -77,7 +77,6 @@ class BaseScheduler(BaseModule):
 
     seed: int = -1
 
-    @abstractmethod
     def __init__(
         self,
         steps: int,
@@ -132,6 +131,63 @@ class BaseScheduler(BaseModule):
 
         for name, value in self.named_tensors():
             getattr(new, name).data = value.data.clone()
+
+        return new
+
+    def inverse(self) -> Self:
+        self.timesteps.data = self.timesteps.flip(0)
+
+        self.noisy_scale.data = self.noisy_scale.flip(0)
+        self.noisy_noise_scale.data = self.noisy_noise_scale.flip(0)
+
+        alpha = self.scale.data.clone()
+        beta = self.scale_pred.data.clone()
+        gamma = self.noise.data.clone()
+
+        self.scale.data = 1 / alpha.roll(-1).flip(0)
+        self.scale_pred.data = -(beta / alpha[1:, None]).flip(0).flip(1)
+        if self.noise_order > 0:
+            self.noise.data = -(gamma / alpha[1:, None]).flip(0)
+
+        self.trim_order()
+
+        return self
+
+    def early_stop(self, step: int, /) -> Self:
+        steps = self.steps
+        for name, value in self.named_tensors():
+            if value.ndim in (1, 2):
+                if value.size(0) == steps:
+                    value.data = value[:step]
+                else:
+                    value.data = value[:step + 1]
+
+        return self
+    
+    def __getitem__(self, idx: slice, /) -> Self:
+        new = self.clone()
+
+        start = idx.start or 0
+        stop = idx.stop or self.steps
+        step = idx.step or 1
+
+        assert step == 1
+
+        if not isinstance(start, int):
+            start = round(self.steps * start)
+        if not isinstance(stop, int):
+            stop = round(self.steps * stop)
+
+        if start < 0:
+            start = self.steps + start
+        if stop < 0:
+            stop = self.steps + stop
+
+        start = max(0, start)
+        stop = min(self.steps, stop)
+
+        new.early_stop(stop)
+        new.inverse().early_stop(new.steps - start).inverse()
 
         return new
 
@@ -207,90 +263,27 @@ class ConvertScheduler(BaseScheduler, BaseModule):
                 self.noise.data[step, : len(gammas)] = torch.tensor(gammas).sort(descending=True).values
 
         # TODO re-implement.
-        # scheduler.set_timesteps(steps)  # type: ignore
-        # with HijackRandom(latents_history, noise_pred_history, noise_history, max_size) as hijacked:
-        #     for step, timestep in enumerate(scheduler.timesteps):
-        #         latents = hijacked.sample_noise()
-        #         noise = hijacked.sample_noise()
+        scheduler.set_timesteps(steps)  # type: ignore
+        assert scheduler.timesteps is not None
 
-        #         noisy_latents = scheduler.add_noise(latents, noise, timestep)  # type: ignore
+        for step, timestep in enumerate(scheduler.timesteps):
+            latents = torch.randn(1, 4, 32, 32)
+            noise = torch.randn_like(latents)
 
-        #         alpha, out = find_scale_and_residual(noisy_latents, latents)
-        #         self.noisy_scale.data[step] = alpha
+            noisy_latents = scheduler.add_noise(latents, noise, timestep.view(-1))  # type: ignore
 
-        #         beta, out = find_scale_and_residual(out, noise)
-        #         self.noisy_noise_scale.data[step] = beta
+            alpha, out = find_scale_and_residual(noisy_latents, latents)
+            self.noisy_scale.data[step] = alpha
+
+            beta, out = find_scale_and_residual(out, noise)
+            self.noisy_noise_scale.data[step] = beta
 
         self.trim_order()
 
         return self
 
-    # TODO BUGGY
-    # @classmethod
-    # def __from_sampler(
-    #     cls,
-    #     sampler: Sampler,
-    #     /,
-    #     steps: int,
-    #     order: int = 1,
-    # ) -> Self:
-    #     # Memory
-    #     sigma_history: list[Tensor] = []
-    #     latents_history: list[Tensor] = []
-    #     noise_pred_history: list[Tensor] = []
-    #     noise_history: list[Tensor] = []
 
-    #     sigmas = get_sigmas_karras(steps, 0.0292, 14.6146)  # TODO !!!
-
-    #     max_size = 4 * steps * 50
-    #     with HijackRandom(sigma_history, latents_history, noise_pred_history, noise_history, max_size) as ctx:
-    #         latents = ctx.sample_noise()
-    #         latents_history.append(latents)
-
-    #         latents = sampler(ctx.model, latents, sigmas)
-    #         latents_history.append(latents)
-
-    #     self = cls(steps, order, steps * 50)  # ! needed, to account for brownian noise
-
-    #     for step in range(steps + 1):
-    #         out = latents_history[step + 1]
-
-    #         # Coeff. previous latents (out = alpha * X + res)
-    #         X = latents_history[step]
-    #         alpha, out = find_scale_and_residual(out, X)
-    #         self.scale.data[step] = alpha
-
-    #         if step == 0:
-    #             continue
-
-    #         # Coeff. previous noise-pred (out = beta * Y + res)
-    #         Ys = noise_pred_history[:step][-order:]
-    #         for o, Y in enumerate(reversed(Ys)):
-    #             beta, out = find_scale_and_residual(out, Y)
-    #             self.scale_pred.data[step - 1, o] = beta
-
-    #         # Try all noises...
-    #         gammas: list[float] = []
-    #         ids_to_remove: list[int] = []
-    #         for i, noise in enumerate(noise_history):
-    #             gamma, out = find_scale_and_residual(out, noise)
-    #             if abs(gamma) > 1e-8:  # !
-    #                 gammas.append(gamma)
-    #                 ids_to_remove.append(i)
-    #         for i in ids_to_remove:
-    #             del noise_history[i]
-    #         if len(gammas) > 0:
-    #             self.noise.data[step, : len(gammas)] = torch.tensor(gammas).sort(descending=True).values
-
-    #     sigmas = torch.stack(sigma_history)
-    #     self.timesteps.data = sigmas_to_timesteps(sigmas)
-
-    #     self.trim_order()
-
-    #     return self
-
-
-class GuidanceScheduler(BaseScheduler):
+class Guidance(BaseScheduler):
     def set_guidance_scale(
         self,
         initial_scale: float,
@@ -320,7 +313,7 @@ class GuidanceScheduler(BaseScheduler):
         return self
 
 
-class PlotScheduler(BaseScheduler):
+class Plotting(BaseScheduler):
     def plot(self):
         fig, axes = plt.subplots(1, 3, figsize=(12, 3))
 
@@ -350,7 +343,7 @@ class PlotScheduler(BaseScheduler):
         plt.show()
 
 
-class Scheduler(ConvertScheduler, GuidanceScheduler, PlotScheduler, BaseModule):
+class Scheduler(ConvertScheduler, Guidance, Plotting, BaseModule):
     def __init__(
         self,
         steps: int,
@@ -406,38 +399,20 @@ class Scheduler(ConvertScheduler, GuidanceScheduler, PlotScheduler, BaseModule):
             x = self.randn(x)
 
         prev_np: list[Tensor] = []
-        for step in trange(self.steps + 1, leave=leave, disable=disable):
-            if step > 0:
-                noise_pred = model(x, self.timesteps[step - 1], self.guidance_scale[step - 1])
-                prev_np.append(noise_pred)
-                prev_np = prev_np[-self.order :]
+        with trange(self.steps + 1, leave=leave, disable=disable) as pbar:
+            for step in pbar:
+                if step > 0:
+                    noise_pred = model(x, self.timesteps[step - 1], self.guidance_scale[step - 1])
+                    prev_np.append(noise_pred)
+                    prev_np = prev_np[-self.order :]
 
-            x = x * self.scale[step]
-            for order in range(self.noise_order):
-                x = x + self.randn(x) * self.noise[step, order]
-            for order, noise_pred in enumerate(reversed(prev_np)):
-                x = x + noise_pred * self.scale_pred[step - 1, order]
+                x = x * self.scale[step]
+                for order in range(self.noise_order):
+                    x = x + self.randn(x) * self.noise[step, order]
+                for order, noise_pred in enumerate(reversed(prev_np)):
+                    x = x + noise_pred * self.scale_pred[step - 1, order]
 
         return x
-
-    def reverse(self) -> Self:
-        self.timesteps.data = self.timesteps.flip(0)
-
-        self.noisy_scale.data = self.noisy_scale.flip(0)
-        self.noisy_noise_scale.data = self.noisy_noise_scale.flip(0)
-
-        alpha = self.scale.data.clone()
-        beta = self.scale_pred.data.clone()
-        gamma = self.noise.data.clone()
-
-        self.scale.data = 1 / alpha.roll(-1).flip(0)
-        self.scale_pred.data = -(beta / alpha[1:, None]).flip(0).flip(1)
-        if self.noise_order > 0:
-            self.noise.data = -(gamma / alpha[1:, None]).flip(0)
-
-        self.trim_order()
-
-        return self
 
     def save(self, path: str | Path, /) -> Self:
         path = Path(path)
