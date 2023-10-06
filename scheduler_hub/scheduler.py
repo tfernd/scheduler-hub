@@ -1,10 +1,12 @@
 from __future__ import annotations
-from abc import abstractmethod
 from typing import Optional
 from typing_extensions import Self
 
+from abc import abstractmethod
+
 from tqdm.auto import trange
 from pathlib import Path
+
 
 import random
 import math
@@ -15,9 +17,24 @@ from torch import Tensor
 import matplotlib.pyplot as plt
 
 from .types import Model, Schedulers
-from .utils import find_scale_and_residual
-from .hijack import HijackRandom
+from .hijack import HijackRandom, TorchSymbol
 
+
+def find_scale_and_residual(out, X):
+    symbols = X.free_symbols
+
+    Xvec = torch.tensor([float(X.coeff(symbol)) for symbol in symbols])
+    outvec = torch.tensor([float(out.coeff(symbol)) for symbol in symbols])
+
+    num, den = Xvec.mul(outvec).sum().item(), Xvec.square().sum().item()
+    if num != 0 and den != 0:
+        alpha = num / den
+    else:
+        alpha = 0
+    
+    residual = out - alpha * X if alpha != 0 else out
+
+    return alpha, residual
 
 class BaseModule(nn.Module):
     device: torch.device = torch.device("cpu")
@@ -77,6 +94,7 @@ class BaseScheduler(BaseModule):
 
     seed: int = -1
 
+    @abstractmethod
     def __init__(
         self,
         steps: int,
@@ -164,6 +182,7 @@ class BaseScheduler(BaseModule):
 
         return self
     
+    # TODO check
     def __getitem__(self, idx: slice, /) -> Self:
         new = self.clone()
 
@@ -203,80 +222,71 @@ class ConvertScheduler(BaseScheduler, BaseModule):
         extra_noise: int = 1,  # ! needed, to account for brownian noise
     ) -> Self:
         # Configure the scheduler
+        initial_steps = steps
         scheduler.set_timesteps(steps)  # type: ignore
         assert scheduler.timesteps is not None
         steps = len(scheduler.timesteps)  # recompute steps
 
         # Memory
-        latents_history: list[Tensor] = []
-        noise_pred_history: list[Tensor] = []
-        noise_history: list[Tensor] = []
+        noise_pred_history = []
+        noise_history = []
 
         self = cls(steps, order, extra_noise)
         self.timesteps.data = scheduler.timesteps.clone().float()
 
-        # Random perp base
-        max_size = 3 * steps * extra_noise
-        with HijackRandom(latents_history, noise_pred_history, noise_history, max_size) as hijacked:
-            # pre-scale latents
-            latents = hijacked.sample_noise()
-            latents_history.append(latents)
+        # pre-scale latents
+        init_latents = TorchSymbol('x(0)')
+        latents = init_latents * scheduler.init_noise_sigma
 
-            latents = latents * scheduler.init_noise_sigma
-
-            # Sample
-            for timestep in scheduler.timesteps:
+        # Sample
+        with HijackRandom(noise_pred_history, noise_history) as hijacked:
+            for step, timestep in enumerate(scheduler.timesteps):
                 input_latents = scheduler.scale_model_input(latents, timestep)  # type: ignore
+
+                if step == 0:
+                    alpha, residual = find_scale_and_residual(input_latents, init_latents)
+                    self.scale.data[step] = alpha
+
                 pred_noise = hijacked.model(input_latents, timestep)
                 latents = scheduler.step(pred_noise, timestep, latents).prev_sample  # type: ignore
-            latents_history.append(latents)
 
-        # Get all the coefficients
-        for step in range(steps + 1):
-            out = latents_history[step + 1]
+                # Get latents coefficient
+                alpha, residual = find_scale_and_residual(latents, input_latents)
+                self.scale.data[step+1] = alpha
 
-            # Coeff. previous latents (out = alpha * X + res)
-            X = latents_history[step]
-            alpha, out = find_scale_and_residual(out, X)
-            self.scale.data[step] = alpha
+                # Get pred-noise coefficients
+                for o, pred_noise in enumerate(noise_pred_history[-order:]):
+                    alpha, residual = find_scale_and_residual(residual, pred_noise)
+                    self.scale_pred.data[step, o] = alpha
 
-            if step == 0:
-                continue
+            # # Try all noises...
+            # gammas: list[Tensor] = []
+            # ids_to_remove: list[int] = []
+            # for i, noise in enumerate(noise_history):
+            #     gamma, residual = find_scale_and_residual(residual, noise)
+            # #     if abs(gamma) > 1e-8:  # !
+            # #         gammas.append(gamma)
+            # #         ids_to_remove.append(i)
+            # # for i in ids_to_remove:
+            # #     del noise_history[i]
+            # if len(gammas) > 0:
+            #     self.noise.data[step, : len(gammas)] = torch.tensor(gammas).sort(descending=True).values
 
-            # Coeff. previous noise-pred (out = beta * Y + res)
-            Ys = noise_pred_history[:step][-order:]
-            for o, Y in enumerate(reversed(Ys)):
-                beta, out = find_scale_and_residual(out, Y)
-                self.scale_pred.data[step - 1, o] = beta
+        # # TODO re-implement.
+        # scheduler.set_timesteps(initial_steps)  # type: ignore
+        # assert scheduler.timesteps is not None
 
-            # Try all noises...
-            gammas: list[Tensor] = []
-            ids_to_remove: list[int] = []
-            for i, noise in enumerate(noise_history):
-                gamma, out = find_scale_and_residual(out, noise)
-                if abs(gamma) > 1e-8:  # !
-                    gammas.append(gamma)
-                    ids_to_remove.append(i)
-            for i in ids_to_remove:
-                del noise_history[i]
-            if len(gammas) > 0:
-                self.noise.data[step, : len(gammas)] = torch.tensor(gammas).sort(descending=True).values
+        # for step, timestep in enumerate(scheduler.timesteps):
+        #     latents = torch.randn(1, 4, 32, 32)
+        #     noise = torch.randn_like(latents)
 
-        # TODO re-implement.
-        scheduler.set_timesteps(steps)  # type: ignore
-        assert scheduler.timesteps is not None
+        #     noisy_latents = scheduler.add_noise(latents, noise, timestep.view(-1))  # type: ignore
 
-        for step, timestep in enumerate(scheduler.timesteps):
-            latents = torch.randn(1, 4, 32, 32)
-            noise = torch.randn_like(latents)
+        #     alpha, out = find_scale_and_residual(noisy_latents, latents)
+        #     self.noisy_scale.data[step] = alpha
 
-            noisy_latents = scheduler.add_noise(latents, noise, timestep.view(-1))  # type: ignore
-
-            alpha, out = find_scale_and_residual(noisy_latents, latents)
-            self.noisy_scale.data[step] = alpha
-
-            beta, out = find_scale_and_residual(out, noise)
-            self.noisy_noise_scale.data[step] = beta
+        #     beta, out = find_scale_and_residual(out, noise)
+        #     self.noisy_noise_scale.data[step] = beta
 
         self.trim_order()
 
@@ -330,7 +340,7 @@ class Plotting(BaseScheduler):
         axes1t.plot(norm(self.guidance_scale), label="Guidance scale", c="r")
 
         axes[2].plot(norm(self.noisy_scale), label="Noisify latents scale")
-        axes[2].plot(norm(self.noisy_noise_scale), label="Nposify noise scale")
+        axes[2].plot(norm(self.noisy_noise_scale), label="Noisify noise scale")
 
         for ax in axes:
             ax.set_xlabel("Steps (1)")
@@ -354,7 +364,7 @@ class Scheduler(ConvertScheduler, Guidance, Plotting, BaseModule):
 
         order = min(order, steps)
 
-        # step=0 scale and add noise to the latents prior to calling the model, jhence steps + 1
+        # step=0 scale and add noise to the latents prior to calling the model, hence steps + 1
         self.scale = nn.Parameter(torch.zeros(steps + 1))
         self.noise = nn.Parameter(torch.zeros(steps + 1, noise_order))
         self.scale_pred = nn.Parameter(torch.zeros(steps, order))

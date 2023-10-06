@@ -1,29 +1,40 @@
 from __future__ import annotations
 from typing import Optional
 
+from sympy import Symbol
+
 import torch
 from torch import Tensor
 
-from .utils import orthonormal_factory
 
+class TorchSymbol(Symbol):
+    @property
+    def device(self) -> torch.device:
+        return torch.device('cpu')
+    
+    @property
+    def dtype(self) -> torch.dtype:
+        return torch.float32
+
+    @property
+    def shape(self) -> tuple:
+        return (1, 4, 32, 32)
+    
+    def to(self, *args, **kwargs):
+        return self
 
 class HijackRandom:
-    # Hijack torch random number generation and save Model parameters
-
     def __init__(
         self,
-        latents_history: list[Tensor],
-        noise_pred_history: list[Tensor],
-        noise_history: list[Tensor],
-        max_size: int,
+        noise_pred_history: list,
+        noise_history: list,
         /,
-        rand: bool = True,
     ) -> None:
-        self.latents_history = latents_history
         self.noise_pred_history = noise_pred_history
         self.noise_history = noise_history
 
-        self.sample_noise = orthonormal_factory(max_size, rand)
+        self.count_model = 0
+        self.count_random = 0
 
     def model(
         self,
@@ -31,11 +42,10 @@ class HijackRandom:
         timestep: Tensor,
         /,
         guidance_scale: Optional[float | Tensor] = None,
-    ) -> Tensor:
-        self.latents_history.append(latents)
-
-        noise_pred = self.sample_noise()
+    ):
+        noise_pred = TorchSymbol(f'noise_pred({self.count_model})')
         self.noise_pred_history.append(noise_pred)
+        self.count_model += 1
 
         return noise_pred
 
@@ -44,8 +54,9 @@ class HijackRandom:
         self.randn_like_backup = torch.randn_like
 
         def randn(*args, **kwargs):
-            eps = self.sample_noise()
+            eps = TorchSymbol(f'noise({self.count_random})')
             self.noise_history.append(eps)
+            self.count_random += 1
 
             return eps
 
